@@ -2,6 +2,9 @@ import jwt
 import requests
 import streamlit as st
 import pandas as pd
+from database.database import User, Transaction, SessionLocal  # Импортируйте нужные классы и функции
+from main import get_db
+from sqlalchemy.exc import NoResultFound
 
 API_URL = "http://127.0.0.1:8000"  # Замените на URL вашего сервера FastAPI
 
@@ -98,6 +101,26 @@ def get_transactions(token, skip, limit):
         st.error(f"Ошибка при получении транзакций: {e}")
         return []
 
+def recharge_balance(user_mail, amount, db_session):
+    try:
+        user = db_session.query(User).filter(User.user_mail == user_mail).one()
+    except NoResultFound:
+        return "Пользователь не найден"
+
+    user.balance += amount
+
+    transaction = Transaction(
+        user_mail=user_mail,
+        transaction_type="recharge",
+        amount=amount,
+        details=f"Balance recharge of {amount}"
+    )
+    db_session.add(transaction)
+    db_session.commit()
+
+    return "Баланс успешно пополнен"
+
+
 
 def app():
     st.title("Система входа, регистрации и загрузки файла")
@@ -184,15 +207,32 @@ def app():
                 if users is not None:
                     df = pd.DataFrame(users)
                     st.table(df)
-
-            skip = st.number_input("Skip", min_value=0, value=0, step=10)
-            limit = st.number_input("Limit", min_value=1, value=10, step=10)
-
+            st.write("Таблица транзакций")
+            skip = st.number_input("Min", min_value=0, value=0, step=10)
+            limit = st.number_input("Max", min_value=1, value=10, step=10)
             if st.button("Загрузить транзакции"):
                 transactions = get_transactions(st.session_state['token'], skip, limit)
                 if transactions:
                     df_transactions = pd.DataFrame(transactions)
                     st.table(df_transactions)
+
+            with st.form("recharge_form"):
+                user_mail = st.text_input("Email пользователя")
+                amount = st.number_input("Сумма", min_value=0.0, format="%.2f")
+                submit_button = st.form_submit_button("Пополнить")
+
+            if submit_button:
+                # Создаем сессию базы данных
+                db_session = SessionLocal()
+                try:
+                    result = recharge_balance(user_mail, amount, db_session)
+                    if result == "Пользователь не найден":
+                        st.error(result)
+                    else:
+                        st.success(result)
+                finally:
+                    # Важно закрыть сессию после использования
+                    db_session.close()
 
 
 
